@@ -53,7 +53,6 @@ function TilePreview() {
 
   const wallMeshRef = useRef<THREE.Mesh | null>(null);
   const tileHandleRef = useRef<TileMaterialHandle | null>(null);
-  const [wallSize, setWallSize] = useState<{ width: number; height: number } | null>(null);
   const [zoom, setZoom] = useState(1);
 
   const imageDimensions = useMemo(() => {
@@ -76,6 +75,26 @@ function TilePreview() {
     const commands = wallPoints.map((point, i) => `${i === 0 ? 'M' : 'L'} ${point.x} ${point.y}`);
     if (wallPoints.length === 4) commands.push('Z');
     return commands.join(' ');
+  }, [wallPoints]);
+
+  const wallBoundingBoxPx = useMemo(() => {
+    if (!wallPoints || wallPoints.length !== 4) {
+      return null;
+    }
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const point of wallPoints) {
+      minX = Math.min(minX, point.x);
+      maxX = Math.max(maxX, point.x);
+      minY = Math.min(minY, point.y);
+      maxY = Math.max(maxY, point.y);
+    }
+    return {
+      width: Math.max(maxX - minX, 1),
+      height: Math.max(maxY - minY, 1),
+    };
   }, [wallPoints]);
 
   const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>, index: number) => {
@@ -181,7 +200,6 @@ function TilePreview() {
   // Build mesh in camera space (same as photo) so the tile stays exactly within the quad.
   useEffect(() => {
     if (!scene || !camera || !uploadedImage || !wallPoints || wallPoints.length !== 4) {
-      setWallSize(null);
       return undefined;
     }
 
@@ -192,11 +210,6 @@ function TilePreview() {
     const mesh = createWallMeshFromQuad(wallPoints, imageWidth, imageHeight, camera, photoQuad);
     wallMeshRef.current = mesh;
     camera.add(mesh);
-
-    const size = new THREE.Vector3();
-    mesh.geometry.computeBoundingBox();
-    mesh.geometry.boundingBox?.getSize(size);
-    setWallSize({ width: Math.max(size.x, 0.1), height: Math.max(size.y, 0.1) });
 
     return () => {
       tileHandleRef.current?.dispose();
@@ -213,10 +226,10 @@ function TilePreview() {
     };
   }, [scene, camera, uploadedImage, wallPoints]);
 
-  // Apply tile material whenever the selection or wall dimensions change
+  // Apply tile material whenever the selection or the wall bounding box changes
   useEffect(() => {
     const mesh = wallMeshRef.current;
-    if (!mesh || !wallSize) {
+    if (!mesh || !wallBoundingBoxPx) {
       return;
     }
 
@@ -230,8 +243,7 @@ function TilePreview() {
     mesh.visible = true;
     const materialHandle = tileHandleRef.current;
     const baseOptions = {
-      wallWidthMeters: Math.max(wallSize.width, 0.1),
-      wallHeightMeters: Math.max(wallSize.height, 0.1),
+      wallBoundingBoxPx,
     };
 
     if (!materialHandle) {
@@ -241,7 +253,7 @@ function TilePreview() {
     }
 
     materialHandle.updateTile(selectedTile, baseOptions);
-  }, [selectedTile, wallSize]);
+  }, [selectedTile, wallBoundingBoxPx]);
 
   const hasImage = Boolean(uploadedImage);
   const hasTile = Boolean(selectedTile);
