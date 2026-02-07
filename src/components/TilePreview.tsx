@@ -53,7 +53,6 @@ function TilePreview() {
 
   const wallMeshRef = useRef<THREE.Mesh | null>(null);
   const tileHandleRef = useRef<TileMaterialHandle | null>(null);
-  const [zoom, setZoom] = useState(1);
 
   const imageDimensions = useMemo(() => {
     if (!uploadedImage) return { width: 0, height: 0 };
@@ -76,6 +75,10 @@ function TilePreview() {
     if (wallPoints.length === 4) commands.push('Z');
     return commands.join(' ');
   }, [wallPoints]);
+
+  const previewAspectRatio = imageDimensions.width > 0 && imageDimensions.height > 0
+    ? imageDimensions.width / imageDimensions.height
+    : undefined;
 
   const wallBoundingBoxPx = useMemo(() => {
     if (!wallPoints || wallPoints.length !== 4) {
@@ -156,37 +159,6 @@ function TilePreview() {
     return () => lighting.dispose();
   }, [scene]);
 
-  // Apply zoom to the perspective camera
-  useEffect(() => {
-    if (!camera) {
-      return;
-    }
-    camera.zoom = zoom;
-    camera.updateProjectionMatrix();
-  }, [camera, zoom]);
-
-  const clampZoom = (value: number) => Math.min(2.5, Math.max(0.5, value));
-
-  useEffect(() => {
-    const element = stageRef.current;
-    if (!element) {
-      return;
-    }
-    const handleWheel = (event: WheelEvent) => {
-      if (!event.ctrlKey) {
-        return;
-      }
-      event.preventDefault();
-      setZoom((prev) => clampZoom(prev - event.deltaY * 0.0015));
-    };
-    element.addEventListener('wheel', handleWheel, { passive: false });
-    return () => element.removeEventListener('wheel', handleWheel);
-  }, []);
-
-  const handleZoomButton = (delta: number) => {
-    setZoom((prev) => clampZoom(prev + delta));
-  };
-
   // Sync background photo with uploaded image
   useEffect(() => {
     if (!scene || !camera || !uploadedImage) {
@@ -259,7 +231,11 @@ function TilePreview() {
   const hasTile = Boolean(selectedTile);
 
   return (
-    <div className="preview-stage" ref={stageRef}>
+    <div
+      className="preview-stage"
+      ref={stageRef}
+      style={previewAspectRatio ? { aspectRatio: previewAspectRatio } : undefined}
+    >
       <div ref={mountRef} className="preview-stage__canvas" />
       {hasImage && imageDimensions.width > 0 && imageDimensions.height > 0 && wallPoints && wallPoints.length === 4 && (
         <div
@@ -267,7 +243,6 @@ function TilePreview() {
           className="preview-stage__corner-overlay"
           style={{
             aspectRatio: `${imageDimensions.width} / ${imageDimensions.height}`,
-            transform: `scale(${zoom})`,
           }}
         >
           <svg
@@ -301,11 +276,6 @@ function TilePreview() {
           <p>Drag the blue corners to outline the wall, then select a tile. The tile stays inside your selection.</p>
         </div>
       )}
-      <div className="preview-zoom">
-        <button type="button" onClick={() => handleZoomButton(-0.1)}>-</button>
-        <span>{Math.round(zoom * 100)}%</span>
-        <button type="button" onClick={() => handleZoomButton(0.1)}>+</button>
-      </div>
     </div>
   );
 }

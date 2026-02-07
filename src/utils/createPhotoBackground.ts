@@ -30,9 +30,10 @@ export function getPhotoQuadDimensions(
   const viewHeight = 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
   const viewWidth = viewHeight * camera.aspect;
 
+  // Fit entire image in view (contain), no cropping
   let quadWidth = viewWidth;
   let quadHeight = quadWidth / imageAspect;
-  if (quadHeight < viewHeight) {
+  if (quadHeight > viewHeight) {
     quadHeight = viewHeight;
     quadWidth = quadHeight * imageAspect;
   }
@@ -96,10 +97,10 @@ export function createPhotoBackground(
     const viewHeight = 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
     const viewWidth = viewHeight * camera.aspect;
 
+    // Fit entire image in view (contain), no cropping
     let quadWidth = viewWidth;
     let quadHeight = quadWidth / imageAspect;
-
-    if (quadHeight < viewHeight) {
+    if (quadHeight > viewHeight) {
       quadHeight = viewHeight;
       quadWidth = quadHeight * imageAspect;
     }
