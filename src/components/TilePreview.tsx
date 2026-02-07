@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { useVisualizer } from '../contexts/VisualizerContext';
+import { useVisualizer, WallPoint } from '../contexts/VisualizerContext';
 import { useThreeRenderer } from '../hooks/useThreeRenderer';
-import { createPhotoBackground } from '../utils/createPhotoBackground';
+import { createPhotoBackground, getPhotoQuadDimensions } from '../utils/createPhotoBackground';
 import { createWallMeshFromQuad } from '../utils/createWallMeshFromQuad';
 import { createTileMaterial } from '../utils/applyTileMaterial';
 import { tileCatalog } from '../data/tileCatalog';
@@ -11,9 +11,35 @@ import { createTileLighting } from '../utils/createTileLighting';
 
 const DEFAULT_CAMERA_Z = 1.6;
 
+const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+
+function clientToImagePoint(
+  clientX: number,
+  clientY: number,
+  rect: DOMRect,
+  imageDimensions: { width: number; height: number },
+): WallPoint {
+  const xRatio = clamp((clientX - rect.left) / rect.width, 0, 1);
+  const yRatio = clamp((clientY - rect.top) / rect.height, 0, 1);
+  return {
+    x: xRatio * imageDimensions.width,
+    y: yRatio * imageDimensions.height,
+  };
+}
+
+function normalizeWallPoints(points: WallPoint[]): WallPoint[] {
+  if (points.length < 4) return points;
+  const trimmed = points.slice(0, 4);
+  const sortedByY = [...trimmed].sort((a, b) => a.y - b.y);
+  const top = sortedByY.slice(0, 2).sort((a, b) => a.x - b.x);
+  const bottom = sortedByY.slice(2).sort((a, b) => a.x - b.x);
+  return [top[0], top[1], bottom[1], bottom[0]];
+}
+
 function TilePreview() {
   const { uploadedImage, wallPoints, selectedTileId, setWallPoints } = useVisualizer();
   const stageRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const { mountRef, scene, camera } = useThreeRenderer({
     clearColor: '#0b1120',
     cameraZ: DEFAULT_CAMERA_Z,
@@ -30,7 +56,57 @@ function TilePreview() {
   const [wallSize, setWallSize] = useState<{ width: number; height: number } | null>(null);
   const [zoom, setZoom] = useState(1);
 
-  // Default to full-image wall if user hasn't set corners yet
+  const imageDimensions = useMemo(() => {
+    if (!uploadedImage) return { width: 0, height: 0 };
+    const w = uploadedImage.naturalWidth || uploadedImage.width || 0;
+    const h = uploadedImage.naturalHeight || uploadedImage.height || 0;
+    return { width: w, height: h };
+  }, [uploadedImage]);
+
+  const normalizedHandles = useMemo(() => {
+    if (!wallPoints || imageDimensions.width === 0 || imageDimensions.height === 0) return [];
+    return wallPoints.map((p) => ({
+      left: (p.x / imageDimensions.width) * 100,
+      top: (p.y / imageDimensions.height) * 100,
+    }));
+  }, [wallPoints, imageDimensions]);
+
+  const polygonPath = useMemo(() => {
+    if (!wallPoints || wallPoints.length < 2) return '';
+    const commands = wallPoints.map((point, i) => `${i === 0 ? 'M' : 'L'} ${point.x} ${point.y}`);
+    if (wallPoints.length === 4) commands.push('Z');
+    return commands.join(' ');
+  }, [wallPoints]);
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>, index: number) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!overlayRef.current || !imageDimensions.width || !imageDimensions.height) return;
+    const target = event.currentTarget;
+    const rect = overlayRef.current.getBoundingClientRect();
+    target.setPointerCapture?.(event.pointerId);
+
+    const handleMove = (e: PointerEvent) => {
+      const next = clientToImagePoint(e.clientX, e.clientY, rect, imageDimensions);
+      setWallPoints((prev) => {
+        if (!prev) return prev;
+        const nextPoints = [...prev];
+        nextPoints[index] = next;
+        return nextPoints.length === 4 ? normalizeWallPoints(nextPoints) : nextPoints;
+      });
+    };
+    const handleUp = () => {
+      target.releasePointerCapture?.(event.pointerId);
+      target.removeEventListener('pointermove', handleMove);
+      target.removeEventListener('pointerup', handleUp);
+      target.removeEventListener('pointercancel', handleUp);
+    };
+    target.addEventListener('pointermove', handleMove);
+    target.addEventListener('pointerup', handleUp);
+    target.addEventListener('pointercancel', handleUp);
+  };
+
+  // Default to full-image quad so user can drag corners to select the wall manually
   useEffect(() => {
     if (!uploadedImage || wallPoints) {
       return;
@@ -101,7 +177,8 @@ function TilePreview() {
     return () => handle.dispose();
   }, [scene, camera, uploadedImage]);
 
-  // Create or update the wall mesh whenever wall points change
+  // Create or update the wall mesh whenever wall points change.
+  // Build mesh in camera space (same as photo) so the tile stays exactly within the quad.
   useEffect(() => {
     if (!scene || !camera || !uploadedImage || !wallPoints || wallPoints.length !== 4) {
       setWallSize(null);
@@ -111,19 +188,20 @@ function TilePreview() {
     const imageWidth = uploadedImage.naturalWidth || uploadedImage.width || 1;
     const imageHeight = uploadedImage.naturalHeight || uploadedImage.height || 1;
 
-    const mesh = createWallMeshFromQuad(wallPoints, imageWidth, imageHeight, camera);
-    mesh.name = 'wall-mesh';
-    scene.add(mesh);
+    const photoQuad = getPhotoQuadDimensions(camera, imageWidth, imageHeight);
+    const mesh = createWallMeshFromQuad(wallPoints, imageWidth, imageHeight, camera, photoQuad);
     wallMeshRef.current = mesh;
+    camera.add(mesh);
 
     const size = new THREE.Vector3();
-    new THREE.Box3().setFromObject(mesh).getSize(size);
-    setWallSize({ width: size.x || 1, height: size.y || 1 });
+    mesh.geometry.computeBoundingBox();
+    mesh.geometry.boundingBox?.getSize(size);
+    setWallSize({ width: Math.max(size.x, 0.1), height: Math.max(size.y, 0.1) });
 
     return () => {
       tileHandleRef.current?.dispose();
       tileHandleRef.current = null;
-      scene.remove(mesh);
+      camera.remove(mesh);
       mesh.geometry.dispose();
       const meshMaterial = mesh.material as THREE.Material | THREE.Material[];
       if (Array.isArray(meshMaterial)) {
@@ -171,14 +249,44 @@ function TilePreview() {
   return (
     <div className="preview-stage" ref={stageRef}>
       <div ref={mountRef} className="preview-stage__canvas" />
+      {hasImage && imageDimensions.width > 0 && imageDimensions.height > 0 && wallPoints && wallPoints.length === 4 && (
+        <div
+          ref={overlayRef}
+          className="preview-stage__corner-overlay"
+          style={{
+            aspectRatio: `${imageDimensions.width} / ${imageDimensions.height}`,
+            transform: `scale(${zoom})`,
+          }}
+        >
+          <svg
+            className="preview-stage__overlay-svg"
+            viewBox={`0 0 ${imageDimensions.width} ${imageDimensions.height}`}
+            preserveAspectRatio="none"
+          >
+            {polygonPath && <path d={polygonPath} className="preview-stage__overlay-polygon" />}
+          </svg>
+          {normalizedHandles.map((handle, i) => (
+            <button
+              key={i}
+              type="button"
+              className="preview-stage__handle"
+              style={{ left: `${handle.left}%`, top: `${handle.top}%` }}
+              onPointerDown={(e) => handlePointerDown(e, i)}
+              aria-label={`Corner ${i + 1}`}
+            >
+              {i + 1}
+            </button>
+          ))}
+        </div>
+      )}
       {!hasImage && (
         <div className="preview-stage__message">
           <p>Upload a wall photo to start the preview.</p>
         </div>
       )}
-      {hasImage && !hasTile && (
-        <div className="preview-stage__message">
-          <p>Select a tile from the catalog to overlay it on the wall.</p>
+      {hasImage && wallPoints?.length === 4 && !hasTile && (
+        <div className="preview-stage__message preview-stage__message--hint">
+          <p>Drag the blue corners to outline the wall, then select a tile. The tile stays inside your selection.</p>
         </div>
       )}
       <div className="preview-zoom">

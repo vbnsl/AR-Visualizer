@@ -36,6 +36,7 @@ export function createTileMaterial(
     });
     texture.wrapS = THREE.RepeatWrapping;
     texture.wrapT = THREE.RepeatWrapping;
+    texture.offset.set(0, 0);
     texture.colorSpace = THREE.SRGBColorSpace;
 
     activeTexture = texture;

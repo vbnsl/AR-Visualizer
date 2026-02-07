@@ -5,31 +5,86 @@ export type QuadPoint = {
   y: number;
 };
 
+export type PhotoQuadDimensions = {
+  quadWidth: number;
+  quadHeight: number;
+  distance: number;
+};
+
 const DEFAULT_PLANE_DISTANCE = 1;
 
 /**
- * Converts a quadrilateral defined in 2D pixel space (top-left ordering) into a
- * planar mesh that lives in the same perspective camera frustum. The mesh uses
- * a ray-plane intersection so that, when rendered, the vertices line up with
- * the original 2D points without needing actual depth reconstruction.
+ * Builds a quad mesh that aligns with the photo so the tile stays within the user's selection.
+ * When photoQuad is provided, the mesh is built in camera local space (same as the photo);
+ * add it to the camera so it aligns exactly. Otherwise uses ray-plane in scene space.
  */
 export function createWallMeshFromQuad(
   points: QuadPoint[],
   imageWidth: number,
   imageHeight: number,
   camera: THREE.PerspectiveCamera,
+  photoQuad?: PhotoQuadDimensions,
 ): THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> {
   if (points.length !== 4) {
     throw new Error('createWallMeshFromQuad requires exactly four ordered points.');
   }
 
+  if (photoQuad) {
+    return createWallMeshInPhotoSpace(points, imageWidth, imageHeight, photoQuad);
+  }
+
+  return createWallMeshInSceneSpace(points, imageWidth, imageHeight, camera);
+}
+
+/** Mesh in camera local space: same coordinate system as the photo quad so the tile stays inside it. */
+function createWallMeshInPhotoSpace(
+  points: QuadPoint[],
+  imageWidth: number,
+  imageHeight: number,
+  photoQuad: PhotoQuadDimensions,
+): THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> {
+  const { quadWidth, quadHeight, distance } = photoQuad;
+  const inFront = 0.002;
+
+  const positions: number[] = [];
+  for (const point of points) {
+    const u = point.x / imageWidth;
+    const v = point.y / imageHeight;
+    const x = (u - 0.5) * quadWidth;
+    const y = (0.5 - v) * quadHeight;
+    positions.push(x, y, -distance + inFront);
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
+  geometry.setIndex([0, 1, 2, 0, 2, 3]);
+  geometry.computeVertexNormals();
+
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.35,
+  });
+
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = 'wall-mesh';
+  return mesh;
+}
+
+function createWallMeshInSceneSpace(
+  points: QuadPoint[],
+  imageWidth: number,
+  imageHeight: number,
+  camera: THREE.PerspectiveCamera,
+): THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial> {
   const cameraPosition = new THREE.Vector3();
   camera.getWorldPosition(cameraPosition);
   const cameraNormal = new THREE.Vector3();
   camera.getWorldDirection(cameraNormal).normalize();
 
-  const planeDistance = camera.near + DEFAULT_PLANE_DISTANCE;
-  const planeOffset = planeDistance;
+  const planeOffset = camera.near + DEFAULT_PLANE_DISTANCE;
 
   const worldVertices = points.map((point) =>
     screenPointToPlaneIntersection(
@@ -43,14 +98,10 @@ export function createWallMeshFromQuad(
     ),
   );
 
-  const positions = new Float32Array(worldVertices.flatMap((vertex) => vertex.toArray()));
-  const uvs = new Float32Array(
-    points.flatMap((point) => [point.x / imageWidth, 1 - point.y / imageHeight]),
-  );
-
+  const positions = new Float32Array(worldVertices.flatMap((v) => v.toArray()));
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
   geometry.setIndex([0, 1, 2, 0, 2, 3]);
   geometry.computeVertexNormals();
 
