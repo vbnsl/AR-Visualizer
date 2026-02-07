@@ -14,6 +14,31 @@ export type CreatePhotoBackgroundOptions = {
   colorSpace?: THREE.ColorSpace;
 };
 
+const PHOTO_DISTANCE = 0.01;
+
+/**
+ * Returns the quad dimensions used to display the image on the camera-attached photo plane.
+ * Use this to build overlays (e.g. wall quad) in the same coordinate system so they align.
+ */
+export function getPhotoQuadDimensions(
+  camera: THREE.PerspectiveCamera,
+  imageWidth: number,
+  imageHeight: number,
+  distance: number = camera.near + PHOTO_DISTANCE,
+): { quadWidth: number; quadHeight: number; distance: number } {
+  const imageAspect = imageWidth / imageHeight;
+  const viewHeight = 2 * distance * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+  const viewWidth = viewHeight * camera.aspect;
+
+  let quadWidth = viewWidth;
+  let quadHeight = quadWidth / imageAspect;
+  if (quadHeight < viewHeight) {
+    quadHeight = viewHeight;
+    quadWidth = quadHeight * imageAspect;
+  }
+  return { quadWidth, quadHeight, distance };
+}
+
 /**
  * Creates a camera-attached quad that renders a photo while preserving aspect ratio.
  * The quad sits just in front of the near plane so any additional meshes render on top
@@ -43,7 +68,7 @@ export function createPhotoBackground(
   quad.renderOrder = -1;
   quad.frustumCulled = false;
 
-  const distance = options.distance ?? camera.near + 0.01;
+  const distance = options.distance ?? camera.near + PHOTO_DISTANCE;
   quad.position.set(0, 0, -distance);
 
   const ensureCameraInScene = () => {
