@@ -1,11 +1,15 @@
 import * as THREE from 'three';
 import { TileDefinition } from '../data/tileCatalog';
 
+export type WallBoundingBoxPx = {
+  width: number;
+  height: number;
+};
+
 export type TileMaterialOptions = {
-  wallWidthMeters: number;
-  wallHeightMeters: number;
+  wallBoundingBoxPx: WallBoundingBoxPx;
+  wallSizeMm?: { width: number; height: number };
   tileSizeCm?: { width: number; height: number };
-  repeatScale?: number;
 };
 
 export type TileMaterialHandle = {
@@ -14,6 +18,8 @@ export type TileMaterialHandle = {
   dispose: () => void;
 };
 
+const MM_PER_CM = 10;
+const DEFAULT_WALL_SIZE_MM = { width: 2400, height: 2100 };
 const loader = new THREE.TextureLoader();
 
 export function createTileMaterial(
@@ -70,13 +76,41 @@ function configureTextureRepeat(
   tile: TileDefinition,
   options: TileMaterialOptions,
 ) {
-  const tileWidthMeters = (options.tileSizeCm?.width ?? tile.realWorldSizeCm.width) / 100;
-  const tileHeightMeters = (options.tileSizeCm?.height ?? tile.realWorldSizeCm.height) / 100;
+  const boundingBox = options.wallBoundingBoxPx;
+  if (boundingBox.width <= 0 || boundingBox.height <= 0) {
+    return;
+  }
 
-  const repeatX = options.wallWidthMeters / tileWidthMeters;
-  const repeatY = options.wallHeightMeters / tileHeightMeters;
+  const wallSize = options.wallSizeMm ?? DEFAULT_WALL_SIZE_MM;
+  if (wallSize.width <= 0) {
+    return;
+  }
+  const tileSizeCm = options.tileSizeCm ?? tile.realWorldSizeCm;
+  const tileWidthMm = tileSizeCm.width * MM_PER_CM;
+  const tileHeightMm = tileSizeCm.height * MM_PER_CM;
 
-  texture.repeat.set(repeatX, repeatY);
+  if (tileWidthMm <= 0 || tileHeightMm <= 0) {
+    return;
+  }
+
+  const tilesAcross = wallSize.width / tileWidthMm;
+  if (!isFinite(tilesAcross) || tilesAcross <= 0) {
+    return;
+  }
+
+  const tilePixelWidth = boundingBox.width / tilesAcross;
+  if (!isFinite(tilePixelWidth) || tilePixelWidth <= 0) {
+    return;
+  }
+
+  const tilePixelHeight = tilePixelWidth * (tileHeightMm / tileWidthMm);
+  if (!isFinite(tilePixelHeight) || tilePixelHeight <= 0) {
+    return;
+  }
+
+  const tilesDown = boundingBox.height / tilePixelHeight;
+
+  texture.repeat.set(tilesAcross, tilesDown);
   if (texture.image) {
     texture.needsUpdate = true;
   }
