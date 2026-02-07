@@ -1,0 +1,42 @@
+{
+  "matte-marble": {
+    "id": "matte-marble-square",
+    "name": "Matte Marble Square",
+    "realWorldSizeCm": { "width": 30, "height": 30 },
+    "groutColor": "#f5f5f5",
+    "groutWidthMm": 3,
+    "roughness": 0.2
+  },
+  "charcoal-slate": {
+    "id": "charcoal-slate-plank",
+    "name": "Charcoal Slate Plank",
+    "realWorldSizeCm": { "width": 60, "height": 15 },
+    "groutColor": "#1f2933",
+    "groutWidthMm": 2,
+    "roughness": 0.65
+  },
+  "terra-herringbone": {
+    "id": "terra-herringbone",
+    "name": "Terracotta Herringbone",
+    "realWorldSizeCm": { "width": 10, "height": 30 },
+    "groutColor": "#c47234",
+    "groutWidthMm": 4,
+    "roughness": 0.4
+  },
+  "pearl-hex": {
+    "id": "pearl-hex-mosaic",
+    "name": "Pearl Hex Mosaic",
+    "realWorldSizeCm": { "width": 7, "height": 7 },
+    "groutColor": "#ffffff",
+    "groutWidthMm": 2,
+    "roughness": 0.3
+  },
+  "sandstone-chevron": {
+    "id": "sandstone-chevron",
+    "name": "Sandstone Chevron",
+    "realWorldSizeCm": { "width": 20, "height": 10 },
+    "groutColor": "#a86c35",
+    "groutWidthMm": 3,
+    "roughness": 0.55
+  }
+}
